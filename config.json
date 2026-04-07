@@ -1,0 +1,24 @@
+{
+  "port": 8080,
+  "rules": [
+    {
+      "match": "test.aisee.woa.com",
+      "matchType": "exact",
+      "upstream": {
+        "type": "http",
+        "host": "127.0.0.1",
+        "port": 8899
+      }
+    },
+    {
+      "match": "*.aisee.woa.com",
+      "matchType": "suffix",
+      "upstream": {
+        "type": "http",
+        "host": "127.0.0.1",
+        "port": 8899
+      }
+    }
+  ],
+  "defaultAction": "direct"
+}

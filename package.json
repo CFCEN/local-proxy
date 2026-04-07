@@ -1,0 +1,17 @@
+{
+  "name": "local-proxy",
+  "version": "1.0.0",
+  "description": "基于域名规则的本地正向代理，支持将指定域名转发到上游 HTTP/SOCKS5 代理",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "socks": "^2.8.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
