@@ -1,11 +1,18 @@
 {
-  "name": "local-proxy",
+  "name": "@winnerhang/claude-adapter",
   "version": "1.0.0",
-  "description": "基于域名规则的本地正向代理，支持将指定域名转发到上游 HTTP/SOCKS5 代理",
-  "main": "src/local-proxy/index.js",
+  "description": "Anthropic Claude Messages API 到 OpenAI Chat Completions API 兼容接口的本地适配代理",
+  "main": "dist/claude-adapter/server.js",
   "bin": {
     "claude-adapter": "dist/claude-adapter/cli.js"
   },
+  "files": [
+    "dist/claude-adapter/**/*.js",
+    "dist/claude-adapter/build-mode.json",
+    "!dist/claude-adapter/**/*.test.js",
+    "claude-adapter.config.example.json",
+    "README.md"
+  ],
   "scripts": {
     "start": "node src/local-proxy/index.js",
     "dev": "node --watch src/local-proxy/index.js",
@@ -14,7 +21,8 @@
     "adapter:start:src": "tsx src/claude-adapter/cli.ts",
     "adapter:dev": "tsx watch src/claude-adapter/cli.ts",
     "adapter:build": "tsc -p tsconfig.claude-adapter.json && chmod +x dist/claude-adapter/cli.js && node scripts/write-claude-adapter-build-mode.mjs",
-    "adapter:test": "npm run adapter:build && node --test dist/claude-adapter/**/*.test.js"
+    "adapter:test": "npm run adapter:build && node --test dist/claude-adapter/**/*.test.js",
+    "prepublishOnly": "npm run adapter:test"
   },
   "dependencies": {
     "fastify": "^5.4.0",
@@ -29,7 +37,7 @@
     "typescript": "^5.8.3"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.18.1"
   },
   "license": "MIT"
 }

@@ -240,7 +240,7 @@ npm run adapter:start
 开发模式，直接运行 TypeScript 源码：
 
 ```bash
-npm run adapter:start:src -- --config ./claude-adapter.config.json
+npm run adapter:start:src -- --config ./claude-adapter.config.json --log
 ```
 
 默认构建 portable 产物：
@@ -249,16 +249,46 @@ npm run adapter:start:src -- --config ./claude-adapter.config.json
 npm run build
 ```
 
-portable 产物不会自动读取当前目录的 `claude-adapter.config.json`，启动时必须显式指定配置文件：
+portable 产物不会自动读取当前目录的 `claude-adapter.config.json`，启动时必须显式指定配置文件。
+
+构建后通过 npm script 启动：
 
 ```bash
 npm run adapter:start -- --config ./claude-adapter.config.json
 ```
 
-也可以直接执行构建后的 CLI，并指定配置文件：
+也可以直接执行构建后的 CLI：
 
 ```bash
 ./dist/claude-adapter/cli.js start --config ./claude-adapter.config.json
+```
+
+`start` 默认会在后台启动服务，命令会立即返回。后台进程状态和日志保存在：
+
+```text
+~/.claude-adapter/
+  claude-adapter.pid
+  claude-adapter.meta.json
+  claude-adapter.out.log
+  claude-adapter.err.log
+```
+
+如果需要前台调试并直接在当前终端打印日志，显式加 `--log`：
+
+```bash
+claude-adapter start --config ./claude-adapter.config.json --log
+```
+
+常用后台管理命令：
+
+```bash
+claude-adapter status
+claude-adapter logs
+claude-adapter logs --follow
+claude-adapter logs --error
+claude-adapter restart --config ./claude-adapter.config.json
+claude-adapter stop
+claude-adapter stop --force
 ```
 
 如果你明确要构建本机自用版本，可以指定 `local` 参数：
@@ -273,7 +303,7 @@ local 模式下，如果启动时没有传 `--config`，才会按原逻辑读取
 npm run adapter:start
 ```
 
-如果通过 `npm link` 或作为 npm 包安装，也可以使用 bin 命令：
+如果通过 `npm link` 或作为 npm 包安装，可以使用 bin 命令：
 
 ```bash
 claude-adapter start --config ./claude-adapter.config.json
@@ -282,7 +312,7 @@ claude-adapter start --config ./claude-adapter.config.json
 开发模式，文件变化自动重启：
 
 ```bash
-npm run adapter:dev -- --config ./claude-adapter.config.json
+npm run adapter:dev -- --config ./claude-adapter.config.json --log
 ```
 
 默认监听：
