@@ -19,7 +19,7 @@ src/
 npm install
 ```
 
-项目要求 Node.js 20 或以上版本。
+项目要求 Node.js 20 或以上版本。由于当前依赖 `undici` 要求 Node.js `>=20.18.1`，建议使用 Node.js 20.18.1 或更新版本运行 `claude-adapter`。
 
 ## 敏感配置说明
 
@@ -181,10 +181,17 @@ claude-adapter.config.json
 claude-adapter.config.example.json
 ```
 
-也可以通过环境变量指定配置文件路径：
+也可以通过环境变量或启动参数指定配置文件路径，配置文件结构与 `claude-adapter.config.example.json` 一致：
 
 ```bash
 CLAUDE_ADAPTER_CONFIG=/path/to/claude-adapter.config.json npm run adapter:start
+```
+
+构建后也可以直接用 `--config` 或 `-c` 指定：
+
+```bash
+./dist/claude-adapter/cli.js start --config /path/to/claude-adapter.config.json
+./dist/claude-adapter/cli.js start -c /path/to/claude-adapter.config.json
 ```
 
 也支持通过环境变量覆盖上游地址和 API key：
@@ -230,16 +237,52 @@ npm run adapter:start
 
 ### 启动 claude-adapter
 
-普通启动：
+开发模式，直接运行 TypeScript 源码：
+
+```bash
+npm run adapter:start:src -- --config ./claude-adapter.config.json
+```
+
+默认构建 portable 产物：
+
+```bash
+npm run build
+```
+
+portable 产物不会自动读取当前目录的 `claude-adapter.config.json`，启动时必须显式指定配置文件：
+
+```bash
+npm run adapter:start -- --config ./claude-adapter.config.json
+```
+
+也可以直接执行构建后的 CLI，并指定配置文件：
+
+```bash
+./dist/claude-adapter/cli.js start --config ./claude-adapter.config.json
+```
+
+如果你明确要构建本机自用版本，可以指定 `local` 参数：
+
+```bash
+npm run build -- local
+```
+
+local 模式下，如果启动时没有传 `--config`，才会按原逻辑读取当前目录的 `claude-adapter.config.json`，不存在时再 fallback 到 `claude-adapter.config.example.json`：
 
 ```bash
 npm run adapter:start
 ```
 
-开发模式：
+如果通过 `npm link` 或作为 npm 包安装，也可以使用 bin 命令：
 
 ```bash
-npm run adapter:dev
+claude-adapter start --config ./claude-adapter.config.json
+```
+
+开发模式，文件变化自动重启：
+
+```bash
+npm run adapter:dev -- --config ./claude-adapter.config.json
 ```
 
 默认监听：

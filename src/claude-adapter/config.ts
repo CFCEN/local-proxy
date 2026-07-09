@@ -26,6 +26,10 @@ export function loadConfig(): AdapterConfig {
     : path.resolve(process.cwd(), 'claude-adapter.config.json');
   const fallbackConfigPath = path.resolve(process.cwd(), 'claude-adapter.config.example.json');
 
+  if (process.env.CLAUDE_ADAPTER_REQUIRE_CONFIG === '1' && !process.env.CLAUDE_ADAPTER_CONFIG) {
+    throw new Error('CLAUDE_ADAPTER_CONFIG is required for this build. Pass --config /path/to/claude-adapter.config.json.');
+  }
+
   const raw = fs.readFileSync(fs.existsSync(configPath) ? configPath : fallbackConfigPath, 'utf8');
   const parsed = ConfigSchema.parse(JSON.parse(raw));
 

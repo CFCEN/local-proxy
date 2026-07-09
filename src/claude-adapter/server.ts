@@ -1,11 +1,10 @@
 import Fastify from 'fastify';
-import { loadConfig } from './config.js';
+import { loadConfig, type AdapterConfig } from './config.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerModelRoutes } from './routes/models.js';
 import { createConversationLogger, createDisabledConversationLogger } from './utils/conversation-logger.js';
 
-async function main() {
-  const config = loadConfig();
+export async function createClaudeAdapterServer(config: AdapterConfig) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
@@ -23,13 +22,17 @@ async function main() {
   await registerMessageRoutes(app, config, conversationLogger);
   await registerModelRoutes(app, config);
 
+  return app;
+}
+
+export async function startClaudeAdapter() {
+  const config = loadConfig();
+  const app = await createClaudeAdapterServer(config);
+
   await app.listen({
     host: config.listen.host,
     port: config.listen.port,
   });
-}
 
-main().catch((error) => {
-  console.error('[claude-adapter] failed to start', error);
-  process.exit(1);
-});
+  return app;
+}
