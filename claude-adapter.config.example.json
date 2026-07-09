@@ -1,0 +1,18 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 8989
+  },
+  "upstream": {
+    "baseUrl": "http://127.0.0.1:8888",
+    "apiKey": ""
+  },
+  "logging": {
+    "enabled": false,
+    "conversationDir": "logs/claude-adapter"
+  },
+  "models": {
+    "claude-fable-5": "gpt-5.5",
+    "gpt-5.5": "gpt-5.5"
+  }
+}

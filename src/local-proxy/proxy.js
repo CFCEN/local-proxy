@@ -37,9 +37,9 @@ async function handleConnect(req, clientSocket, head) {
   const upstream = rule ? rule.upstream : null;
   const isDirect = !rule && config.defaultAction === 'direct';
 
-  console.log(
-    `[CONNECT] ${host}:${port} -> ${upstream ? `上游 ${upstream.type} ${upstream.host}:${upstream.port}` : '直连'}`
-  );
+  // console.log(
+  //   `[CONNECT] ${host}:${port} -> ${upstream ? `上游 ${upstream.type} ${upstream.host}:${upstream.port}` : '直连'}`
+  // );
 
   try {
     let remoteSocket;
@@ -86,9 +86,9 @@ async function handleHttpRequest(req, res) {
   const rule = findRule(host, config.rules || []);
   const upstream = rule ? rule.upstream : null;
 
-  console.log(
-    `[HTTP ] ${req.method} ${host}:${port}${urlObj.pathname} -> ${upstream ? `上游 ${upstream.type} ${upstream.host}:${upstream.port}` : '直连'}`
-  );
+  // console.log(
+  //   `[HTTP ] ${req.method} ${host}:${port}${urlObj.pathname} -> ${upstream ? `上游 ${upstream.type} ${upstream.host}:${upstream.port}` : '直连'}`
+  // );
 
   try {
     if (upstream && (upstream.type === 'http' || upstream.type === 'https')) {

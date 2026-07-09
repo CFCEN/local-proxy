@@ -2,16 +2,29 @@
   "name": "local-proxy",
   "version": "1.0.0",
   "description": "基于域名规则的本地正向代理，支持将指定域名转发到上游 HTTP/SOCKS5 代理",
-  "main": "src/index.js",
+  "main": "src/local-proxy/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "start": "node src/local-proxy/index.js",
+    "dev": "node --watch src/local-proxy/index.js",
+    "adapter:start": "tsx src/claude-adapter/server.ts",
+    "adapter:dev": "tsx watch src/claude-adapter/server.ts",
+    "adapter:build": "tsc -p tsconfig.claude-adapter.json",
+    "adapter:test": "npm run adapter:build && node --test dist/claude-adapter/**/*.test.js"
   },
   "dependencies": {
-    "socks": "^2.8.3"
+    "fastify": "^5.4.0",
+    "pino": "^9.7.0",
+    "socks": "^2.8.3",
+    "undici": "^7.11.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "license": "MIT"
 }

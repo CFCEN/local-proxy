@@ -70,7 +70,7 @@ function connectViaHttpProxy(proxyHost, proxyPort, targetHost, targetPort, origi
         if (extra.length > 0) {
           socket.unshift(extra);
         }
-        console.log(`[tunnel] 上游隧道已建立 -> ${targetHost}:${targetPort}`);
+        // console.log(`[tunnel] 上游隧道已建立 -> ${targetHost}:${targetPort}`);
         resolve(socket);
       } else {
         console.error(`[tunnel] 上游 CONNECT 失败: ${statusLine}`);

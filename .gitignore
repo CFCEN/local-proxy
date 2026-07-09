@@ -1,0 +1,6 @@
+dist/
+node_modules/
+.history/
+logs/
+local-proxy.config.json
+claude-adapter.config.json

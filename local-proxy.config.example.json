@@ -2,7 +2,7 @@
   "port": 8080,
   "rules": [
     {
-      "match": "test.aisee.woa.com",
+      "match": "example.internal",
       "matchType": "exact",
       "upstream": {
         "type": "http",
@@ -11,7 +11,7 @@
       }
     },
     {
-      "match": "*.aisee.woa.com",
+      "match": "*.example.internal",
       "matchType": "suffix",
       "upstream": {
         "type": "http",
