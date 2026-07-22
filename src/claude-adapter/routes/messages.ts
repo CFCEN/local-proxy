@@ -5,6 +5,7 @@ import { callChatCompletions, callChatCompletionsStream } from '../adapters/open
 import { mapAnthropicRequest } from '../mappers/request.js';
 import { mapAnthropicError, mapAnthropicResponse, type OpenAIChatResponse } from '../mappers/response.js';
 import {
+  createAnthropicStreamError,
   createAnthropicStreamStart,
   createOpenAIStreamToolCallState,
   encodeSse,
@@ -66,6 +67,14 @@ export async function registerMessageRoutes(
       );
       return reply.send(anthropicResponse);
     } catch (error) {
+      if (reply.raw.headersSent) {
+        const message = error instanceof Error ? error.message : 'Internal server error';
+        request.log.error({ err: error }, 'messages stream failed after response started');
+        conversationLogger.writeMessage('assistant', `[stream_error] ${message}`);
+        safelyEndStartedStream(reply, message);
+        return reply;
+      }
+
       if (error instanceof ZodError) {
         request.log.warn({ issues: error.issues, body: request.body }, 'invalid Anthropic messages request');
         const errorResponse = {
@@ -93,6 +102,17 @@ export async function registerMessageRoutes(
       return reply.code(500).send(errorResponse);
     }
   });
+}
+
+function safelyEndStartedStream(reply: FastifyReply, message: string) {
+  try {
+    if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+      reply.raw.write(encodeSse(createAnthropicStreamError(message)[0]));
+      reply.raw.end();
+    }
+  } catch {
+    reply.raw.destroy();
+  }
 }
 
 async function streamChatCompletions(
@@ -134,30 +154,39 @@ async function streamChatCompletions(
   let streamedText = '';
   let finishReason: string | null = null;
   const streamState = createOpenAIStreamToolCallState();
-  for await (const chunk of upstream.body) {
-    buffer += Buffer.from(chunk).toString('utf8');
-    const parsed = parseOpenAISseBuffer(buffer);
-    buffer = parsed.rest;
 
-    for (const frame of parsed.frames) {
-      const openaiChunk = parseOpenAISseFrame(frame);
-      if (!openaiChunk || openaiChunk === 'done') {
-        continue;
-      }
+  try {
+    for await (const chunk of upstream.body) {
+      buffer += Buffer.from(chunk).toString('utf8');
+      const parsed = parseOpenAISseBuffer(buffer);
+      buffer = parsed.rest;
 
-      const choice = openaiChunk.choices?.[0];
-      const text = choice?.delta?.content;
-      if (text) {
-        streamedText += text;
-      }
-      if (choice?.finish_reason) {
-        finishReason = choice.finish_reason;
-      }
+      for (const frame of parsed.frames) {
+        const openaiChunk = parseOpenAISseFrame(frame);
+        if (!openaiChunk || openaiChunk === 'done') {
+          continue;
+        }
 
-      for (const event of mapOpenAIStreamChunk(openaiChunk, streamState)) {
-        reply.raw.write(encodeSse(event));
+        const choice = openaiChunk.choices?.[0];
+        const text = choice?.delta?.content;
+        if (text) {
+          streamedText += text;
+        }
+        if (choice?.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+
+        for (const event of mapOpenAIStreamChunk(openaiChunk, streamState)) {
+          reply.raw.write(encodeSse(event));
+        }
       }
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Upstream stream failed';
+    app.log.error({ err: error }, 'streaming chat completions failed');
+    conversationLogger.writeMessage('assistant', `[stream_error] ${message}`);
+    safelyEndStartedStream(reply, message);
+    return reply;
   }
 
   conversationLogger.writeMessage('assistant', streamedText || `[stream_finished] ${finishReason ?? 'unknown'}`);

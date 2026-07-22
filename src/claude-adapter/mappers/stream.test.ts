@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createAnthropicStreamError,
   createOpenAIStreamToolCallState,
   encodeSse,
   mapOpenAIStreamChunk,
@@ -100,6 +101,21 @@ test('encodes Anthropic SSE event', () => {
       type: 'message_stop',
     },
   }), 'event: message_stop\ndata: {"type":"message_stop"}\n\n');
+});
+
+test('creates Anthropic SSE error event for started streams', () => {
+  assert.deepEqual(createAnthropicStreamError('stream failed'), [
+    {
+      event: 'error',
+      data: {
+        type: 'error',
+        error: {
+          type: 'api_error',
+          message: 'stream failed',
+        },
+      },
+    },
+  ]);
 });
 
 test('accumulates streaming tool call arguments before emitting tool_use', () => {

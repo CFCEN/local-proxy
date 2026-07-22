@@ -292,6 +292,21 @@ export function mapOpenAIStreamChunk(
   return events;
 }
 
+export function createAnthropicStreamError(message: string): AnthropicStreamEvent[] {
+  return [
+    {
+      event: 'error',
+      data: {
+        type: 'error',
+        error: {
+          type: 'api_error',
+          message,
+        },
+      },
+    },
+  ];
+}
+
 export function encodeSse(event: AnthropicStreamEvent): string {
   return `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
 }

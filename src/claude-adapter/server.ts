@@ -34,5 +34,5 @@ export async function startClaudeAdapter() {
     port: config.listen.port,
   });
 
-  return app;
+  return { app, config };
 }

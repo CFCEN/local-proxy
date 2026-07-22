@@ -220,6 +220,12 @@ npm run adapter:start
   },
   "models": {
     "claude-fable-5": "gpt-5.5",
+    "claude-sonnet-5": "gpt-5.5",
+    "sonnet": "gpt-5.5",
+    "claude-opus-4-8": "gpt-5.5",
+    "opus": "gpt-5.5",
+    "claude-haiku-4-5": "gpt-5.5",
+    "haiku": "gpt-5.5",
     "gpt-5.5": "gpt-5.5"
   }
 }
@@ -357,14 +363,37 @@ curl http://127.0.0.1:8989/v1/messages \
 
 ### 配置 Claude Code 使用 claude-adapter
 
-启动 `claude-adapter` 后，可以把 Claude Code 的 API base URL 指向本地代理。例如：
+启动 `claude-adapter` 时会自动合并更新 `~/.claude/settings.json`，把 Claude Code 的 `ANTHROPIC_BASE_URL` 指向当前适配器监听地址，例如：
 
-```bash
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8989
-export ANTHROPIC_AUTH_TOKEN=your-api-key
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8989",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "sonnet",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "sonnet",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "opus",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "opus",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "haiku",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "haiku"
+  }
+}
 ```
 
-然后正常使用 Claude Code。实际环境变量名称以你的 Claude Code 版本和配置方式为准。
+如果 `claude-adapter.config.json` 中配置了 `upstream.apiKey`，启动时也会同步写入 `ANTHROPIC_AUTH_TOKEN`，避免 Claude Code 自身登录 token 覆盖适配器的上游鉴权。已有的 Claude Code 设置会被保留，只合并更新 `env` 中相关字段。
+
+如果不希望启动时修改 Claude Code 配置，可以使用：
+
+```bash
+claude-adapter start --config ./claude-adapter.config.json --no-claude-config
+```
+
+也可以通过环境变量禁用：
+
+```bash
+CLAUDE_ADAPTER_CONFIGURE_CLAUDE_CODE=0 claude-adapter start --config ./claude-adapter.config.json
+```
+
+修改后的 Claude Code 配置通常需要新开的 Claude Code 会话才会生效。
 
 ### 对话日志
 

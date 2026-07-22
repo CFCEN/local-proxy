@@ -4,3 +4,4 @@ node_modules/
 logs/
 local-proxy.config.json
 claude-adapter.config.json
+.idea/

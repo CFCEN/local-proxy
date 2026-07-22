@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import type { FastifyInstance } from 'fastify';
+import type { AdapterConfig } from './config.js';
 
 const STATE_DIR = path.join(os.homedir(), '.claude-adapter');
 const PID_FILE = path.join(STATE_DIR, 'claude-adapter.pid');
@@ -17,6 +19,7 @@ type BuildMode = 'portable' | 'local';
 type StartOptions = {
   configPath?: string;
   foreground?: boolean;
+  skipClaudeCodeConfig?: boolean;
 };
 
 type StopOptions = {
@@ -34,6 +37,22 @@ type RuntimeMeta = {
   startedAt: string;
   stdoutLogFile: string;
   stderrLogFile: string;
+  claudeCodeBaseUrl?: string;
+  claudeCodeSettingsFile?: string;
+};
+
+type ClaudeCodeSettings = {
+  env?: Record<string, string>;
+  [key: string]: unknown;
+};
+
+const CLAUDE_CODE_DEFAULT_MODEL_ENV: Record<string, string> = {
+  ANTHROPIC_DEFAULT_SONNET_MODEL: 'sonnet',
+  ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'sonnet',
+  ANTHROPIC_DEFAULT_OPUS_MODEL: 'opus',
+  ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'opus',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: 'haiku',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'haiku',
 };
 
 function printHelp() {
@@ -51,6 +70,7 @@ Commands:
 Options for start/run/restart:
   -c, --config <path>    Path to a claude-adapter config JSON file
       --log              Run in foreground and print logs to the current terminal
+      --no-claude-config Do not update ~/.claude/settings.json for Claude Code
 
 Options for stop:
       --force            Send SIGKILL if SIGTERM does not stop the process
@@ -175,6 +195,11 @@ function parseStartOptions(args: string[]): StartOptions {
       continue;
     }
 
+    if (arg === '--no-claude-config') {
+      options.skipClaudeCodeConfig = true;
+      continue;
+    }
+
     throw new Error(`unknown start option: ${arg}`);
   }
 
@@ -220,6 +245,69 @@ function getNodeExecutable() {
   return process.execPath;
 }
 
+function getClaudeCodeSettingsFile() {
+  return path.join(os.homedir(), '.claude', 'settings.json');
+}
+
+function getClaudeCodeHost(host: string) {
+  if (host === '0.0.0.0' || host === '::') return '127.0.0.1';
+  return host;
+}
+
+function getClaudeCodeBaseUrl(config: AdapterConfig) {
+  return `http://${getClaudeCodeHost(config.listen.host)}:${config.listen.port}`;
+}
+
+function readClaudeCodeSettings(filePath: string): ClaudeCodeSettings {
+  if (!fs.existsSync(filePath)) return {};
+  const raw = fs.readFileSync(filePath, 'utf8').trim();
+  if (!raw) return {};
+  return JSON.parse(raw) as ClaudeCodeSettings;
+}
+
+function writeClaudeCodeSettings(config: AdapterConfig) {
+  const settingsFile = getClaudeCodeSettingsFile();
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+
+  const settings = readClaudeCodeSettings(settingsFile);
+  const env: Record<string, string> = {
+    ...(settings.env ?? {}),
+    ...CLAUDE_CODE_DEFAULT_MODEL_ENV,
+    ANTHROPIC_BASE_URL: getClaudeCodeBaseUrl(config),
+  };
+
+  if (config.upstream.apiKey) {
+    env.ANTHROPIC_AUTH_TOKEN = config.upstream.apiKey;
+  }
+
+  const nextSettings: ClaudeCodeSettings = {
+    ...settings,
+    env,
+  };
+
+  fs.writeFileSync(settingsFile, `${JSON.stringify(nextSettings, null, 2)}\n`);
+
+  return {
+    baseUrl: env.ANTHROPIC_BASE_URL,
+    settingsFile,
+  };
+}
+
+function configureClaudeCode(app: FastifyInstance, config: AdapterConfig, skip?: boolean) {
+  if (skip || process.env.CLAUDE_ADAPTER_CONFIGURE_CLAUDE_CODE === '0') {
+    return undefined;
+  }
+
+  try {
+    const result = writeClaudeCodeSettings(config);
+    app.log.info(result, 'Claude Code settings updated for claude-adapter');
+    return result;
+  } catch (error) {
+    app.log.warn({ err: error }, 'failed to update Claude Code settings');
+    return undefined;
+  }
+}
+
 function getCliEntry() {
   return path.resolve(__filename);
 }
@@ -257,7 +345,8 @@ async function runServer(args: string[]) {
   applyConfigEnvironment(options.configPath);
 
   const { startClaudeAdapter } = await import('./server.js');
-  const app = await startClaudeAdapter();
+  const { app, config } = await startClaudeAdapter();
+  configureClaudeCode(app, config, options.skipClaudeCodeConfig);
 
   const shutdown = async (signal: NodeJS.Signals) => {
     app.log.info({ signal }, 'received shutdown signal');
@@ -297,12 +386,26 @@ async function start(args: string[]) {
 
   if (existingPid) clearRuntimeStateForPid(existingPid);
 
+  let claudeCodeConfig: ReturnType<typeof writeClaudeCodeSettings> | undefined;
+  if (!options.skipClaudeCodeConfig && process.env.CLAUDE_ADAPTER_CONFIGURE_CLAUDE_CODE !== '0') {
+    try {
+      const { loadConfig } = await import('./config.js');
+      claudeCodeConfig = writeClaudeCodeSettings(loadConfig());
+    } catch (error) {
+      console.warn('[claude-adapter] warning: failed to update Claude Code settings', error);
+    }
+  }
+
   const stdoutFd = fs.openSync(STDOUT_LOG_FILE, 'a');
   const stderrFd = fs.openSync(STDERR_LOG_FILE, 'a');
   const childArgs = [getCliEntry(), 'run'];
 
   if (options.configPath) {
     childArgs.push('--config', path.resolve(options.configPath));
+  }
+
+  if (options.skipClaudeCodeConfig) {
+    childArgs.push('--no-claude-config');
   }
 
   const child = spawn(getNodeExecutable(), childArgs, {
@@ -321,6 +424,8 @@ async function start(args: string[]) {
     startedAt: new Date().toISOString(),
     stdoutLogFile: STDOUT_LOG_FILE,
     stderrLogFile: STDERR_LOG_FILE,
+    claudeCodeBaseUrl: claudeCodeConfig?.baseUrl,
+    claudeCodeSettingsFile: claudeCodeConfig?.settingsFile,
   };
 
   writeRuntimeState(meta);
@@ -335,6 +440,10 @@ async function start(args: string[]) {
 
   console.log(`[claude-adapter] started in background (pid ${child.pid})`);
   if (meta.configPath) console.log(`config: ${meta.configPath}`);
+  if (meta.claudeCodeSettingsFile && meta.claudeCodeBaseUrl) {
+    console.log(`Claude Code settings: ${meta.claudeCodeSettingsFile}`);
+    console.log(`ANTHROPIC_BASE_URL: ${meta.claudeCodeBaseUrl}`);
+  }
   console.log(`stdout: ${STDOUT_LOG_FILE}`);
   console.log(`stderr: ${STDERR_LOG_FILE}`);
 }
@@ -400,6 +509,10 @@ function status() {
   console.log(`pid: ${pid}`);
   if (meta?.startedAt) console.log(`startedAt: ${meta.startedAt}`);
   if (meta?.configPath) console.log(`config: ${meta.configPath}`);
+  if (meta?.claudeCodeSettingsFile && meta.claudeCodeBaseUrl) {
+    console.log(`Claude Code settings: ${meta.claudeCodeSettingsFile}`);
+    console.log(`ANTHROPIC_BASE_URL: ${meta.claudeCodeBaseUrl}`);
+  }
   console.log(`stdout: ${meta?.stdoutLogFile ?? STDOUT_LOG_FILE}`);
   console.log(`stderr: ${meta?.stderrLogFile ?? STDERR_LOG_FILE}`);
 }
