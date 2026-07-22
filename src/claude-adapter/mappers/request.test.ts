@@ -49,6 +49,91 @@ test('maps Anthropic messages request to OpenAI chat request', () => {
   });
 });
 
+test('maps Anthropic image blocks to OpenAI vision content parts', () => {
+  const mapped = mapAnthropicRequest({
+    model: 'claude-fable-5',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '这张图里有什么？',
+          },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'iVBORw0KGgo=',
+            },
+          },
+        ],
+      },
+    ],
+    stream: false,
+  }, {
+    'claude-fable-5': 'gpt-5.5',
+  });
+
+  assert.deepEqual(mapped.messages, [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '这张图里有什么？',
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'data:image/png;base64,iVBORw0KGgo=',
+          },
+        },
+      ],
+    },
+  ]);
+});
+
+test('maps Anthropic URL image blocks and preserves detail', () => {
+  const mapped = mapAnthropicRequest({
+    model: 'claude-fable-5',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'url',
+              url: 'https://example.com/image.png',
+            },
+            detail: 'high',
+          },
+        ],
+      },
+    ],
+    stream: false,
+  }, {
+    'claude-fable-5': 'gpt-5.5',
+  });
+
+  assert.deepEqual(mapped.messages, [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/image.png',
+            detail: 'high',
+          },
+        },
+      ],
+    },
+  ]);
+});
+
 test('maps system messages and Anthropic tools for Claude Code requests', () => {
   const mapped = mapAnthropicRequest({
     model: 'claude-fable-5',

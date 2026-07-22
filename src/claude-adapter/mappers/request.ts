@@ -1,8 +1,12 @@
 import type { AnthropicMessagesRequest } from '../schemas/anthropic.js';
 
+type OpenAIChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } };
+
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: string | OpenAIChatContentPart[];
   tool_call_id?: string;
   tool_calls?: Array<{
     id: string;
@@ -62,6 +66,81 @@ function toolResultContentToText(content: unknown): string {
     .join('\n');
 }
 
+function getStringField(value: unknown, field: string): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const fieldValue = (value as Record<string, unknown>)[field];
+  return typeof fieldValue === 'string' ? fieldValue : undefined;
+}
+
+function mapImageBlock(block: unknown): OpenAIChatContentPart | undefined {
+  if (!block || typeof block !== 'object') {
+    return undefined;
+  }
+
+  const typedBlock = block as { source?: unknown; detail?: unknown };
+  const source = typedBlock.source;
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+
+  const sourceType = getStringField(source, 'type');
+  let url: string | undefined;
+
+  if (sourceType === 'base64') {
+    const mediaType = getStringField(source, 'media_type');
+    const data = getStringField(source, 'data');
+    if (mediaType && data) {
+      url = `data:${mediaType};base64,${data}`;
+    }
+  } else if (sourceType === 'url') {
+    url = getStringField(source, 'url');
+  }
+
+  if (!url) {
+    return undefined;
+  }
+
+  const detail = typedBlock.detail;
+  return {
+    type: 'image_url',
+    image_url: {
+      url,
+      ...(detail === 'auto' || detail === 'low' || detail === 'high' ? { detail } : {}),
+    },
+  };
+}
+
+function mapContentBlocksToOpenAI(content: Exclude<AnthropicMessagesRequest['messages'][number]['content'], string>): OpenAIChatContentPart[] {
+  return content
+    .map((block) => {
+      if (block.type === 'text' && typeof (block as { text?: unknown }).text === 'string') {
+        return { type: 'text', text: (block as { text: string }).text } satisfies OpenAIChatContentPart;
+      }
+
+      if (block.type === 'image') {
+        return mapImageBlock(block);
+      }
+
+      return undefined;
+    })
+    .filter((part): part is OpenAIChatContentPart => Boolean(part));
+}
+
+function simplifyContent(parts: OpenAIChatContentPart[]): string | OpenAIChatContentPart[] {
+  if (parts.length === 0) {
+    return '';
+  }
+
+  if (parts.every((part) => part.type === 'text')) {
+    return parts.map((part) => part.text).join('\n');
+  }
+
+  return parts;
+}
+
 function mapAnthropicMessage(message: AnthropicMessagesRequest['messages'][number], model: string): ChatMessage[] {
   if (typeof message.content === 'string') {
     return [{
@@ -72,9 +151,11 @@ function mapAnthropicMessage(message: AnthropicMessagesRequest['messages'][numbe
     }];
   }
 
-  const textBlocks = message.content
-    .filter((block) => block.type === 'text' && typeof (block as { text?: unknown }).text === 'string')
-    .map((block) => (block as { text: string }).text);
+  const contentParts = mapContentBlocksToOpenAI(message.content);
+  const textContent = contentParts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
   const toolResultBlocks = message.content.filter((block) => block.type === 'tool_result');
   const toolUseBlocks = message.content.filter((block) => block.type === 'tool_use');
   const mapped: ChatMessage[] = [];
@@ -82,7 +163,7 @@ function mapAnthropicMessage(message: AnthropicMessagesRequest['messages'][numbe
   if (message.role === 'assistant' && toolUseBlocks.length > 0) {
     mapped.push({
       role: 'assistant',
-      content: textBlocks.join('\n'),
+      content: textContent,
       tool_calls: toolUseBlocks
         .map((block) => block as { id?: unknown; name?: unknown; input?: unknown })
         .filter((block): block is { id: string; name: string; input: unknown } => (
@@ -100,12 +181,12 @@ function mapAnthropicMessage(message: AnthropicMessagesRequest['messages'][numbe
     return mapped;
   }
 
-  if (textBlocks.length > 0) {
+  if (contentParts.length > 0) {
     mapped.push({
       role: message.role,
       content: message.role === 'system'
-        ? rewriteMappedModelIdentity(textBlocks.join('\n'), model, model)
-        : textBlocks.join('\n'),
+        ? rewriteMappedModelIdentity(textContent, model, model)
+        : simplifyContent(contentParts),
     });
   }
 
@@ -221,7 +302,7 @@ export function mapAnthropicRequest(
   for (const message of request.messages) {
     messages.push(...mapAnthropicMessage(message, model).map((mappedMessage) => ({
       ...mappedMessage,
-      content: mappedMessage.role === 'system'
+      content: mappedMessage.role === 'system' && typeof mappedMessage.content === 'string'
         ? rewriteMappedModelIdentity(mappedMessage.content, request.model, model)
         : mappedMessage.content,
     })));

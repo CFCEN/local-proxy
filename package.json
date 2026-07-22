@@ -1,6 +1,6 @@
 {
   "name": "@winnerhang/claude-adapter",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Anthropic Claude Messages API 到 OpenAI Chat Completions API 兼容接口的本地适配代理",
   "main": "dist/claude-adapter/server.js",
   "bin": {
