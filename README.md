@@ -3,7 +3,7 @@
 这个项目包含两个本地代理服务：
 
 - `local-proxy`：基于域名规则的本地 HTTP/HTTPS 正向代理，可以按规则选择直连、HTTP 上游代理或 SOCKS5 上游代理。
-- `claude-adapter`：Anthropic Claude Messages API 到 OpenAI Chat Completions API 兼容接口的本地适配代理。
+- `claude-adapter`：同时支持 Anthropic Claude Messages API 和 OpenAI Chat Completions API 调用格式的本地适配代理。
 
 ## 目录结构
 
@@ -165,7 +165,7 @@ networksetup -setsecurewebproxystate Wi-Fi off
 
 ## claude-adapter：Claude API 兼容适配代理
 
-`claude-adapter` 提供 Anthropic Claude Messages API 形式的本地接口，并把请求转发到 OpenAI Chat Completions 兼容上游。
+`claude-adapter` 提供两种本地接口：Anthropic Claude Messages API 兼容的 `/v1/messages`，以及 OpenAI Chat Completions API 兼容的 `/v1/chat/completions`。两种接口都会把请求转发到 OpenAI Chat Completions 兼容上游。
 
 ### 配置文件
 
@@ -285,6 +285,12 @@ npm run adapter:start -- --config ./claude-adapter.config.json
 claude-adapter start --config ./claude-adapter.config.json --log
 ```
 
+如果需要排查客户端是否请求到了适配器，以及请求路径和请求体是否正确，可以额外加 `--debug`。该模式会打印请求方法、路径、脱敏后的请求头和请求体：
+
+```bash
+claude-adapter start --config ./claude-adapter.config.json --log --debug
+```
+
 常用后台管理命令：
 
 ```bash
@@ -341,7 +347,7 @@ curl http://127.0.0.1:8989/health
 curl http://127.0.0.1:8989/v1/models
 ```
 
-调用 Messages API：
+调用 Anthropic Messages API 兼容接口：
 
 ```bash
 curl http://127.0.0.1:8989/v1/messages \
@@ -359,7 +365,44 @@ curl http://127.0.0.1:8989/v1/messages \
   }'
 ```
 
-如果 `claude-adapter.config.json` 中已经配置了 `upstream.apiKey`，请求时可以不传 `x-api-key`。如果请求里传了 `x-api-key` 或 `authorization`，请求里的 key 会覆盖配置里的默认 key。
+调用 OpenAI Chat Completions API 兼容接口：
+
+```bash
+curl http://127.0.0.1:8989/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer your-api-key' \
+  -d '{
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "你好"
+      }
+    ]
+  }'
+```
+
+OpenAI 流式调用：
+
+```bash
+curl http://127.0.0.1:8989/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer your-api-key' \
+  -d '{
+    "model": "gpt-5.5",
+    "stream": true,
+    "messages": [
+      {
+        "role": "user",
+        "content": "你好"
+      }
+    ]
+  }'
+```
+
+如果 `claude-adapter.config.json` 中已经配置了 `upstream.apiKey`，请求时可以不传 `x-api-key` 或 `authorization`。如果请求里传了 `x-api-key` 或 `authorization`，请求里的 key 会覆盖配置里的默认 key。
+
+`/v1/messages` 和 `/v1/chat/completions` 都会使用 `models` 配置把请求里的模型名映射为上游模型名。例如请求里传 `haiku` 时，会按配置映射为上游实际支持的模型。
 
 ### 配置 Claude Code 使用 claude-adapter
 

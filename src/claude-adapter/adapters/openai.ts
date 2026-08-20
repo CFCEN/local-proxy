@@ -1,7 +1,12 @@
 import { request } from 'undici';
 import type { AdapterConfig } from '../config.js';
-import type { OpenAIChatRequest } from '../mappers/request.js';
 import { buildUpstreamHeaders } from '../utils/headers.js';
+
+export type OpenAIChatCompletionsBody = Record<string, unknown> & {
+  model: string;
+  messages: unknown[];
+  stream?: boolean;
+};
 
 export type UpstreamResult =
   | { ok: true; statusCode: number; body: unknown }
@@ -9,7 +14,7 @@ export type UpstreamResult =
 
 export async function callChatCompletions(
   config: AdapterConfig,
-  body: OpenAIChatRequest,
+  body: OpenAIChatCompletionsBody,
   apiKey?: string,
 ): Promise<UpstreamResult> {
   const url = new URL('/v1/chat/completions', config.upstream.baseUrl);
@@ -31,7 +36,7 @@ export async function callChatCompletions(
 
 export async function callChatCompletionsStream(
   config: AdapterConfig,
-  body: OpenAIChatRequest,
+  body: OpenAIChatCompletionsBody,
   apiKey?: string,
 ) {
   const url = new URL('/v1/chat/completions', config.upstream.baseUrl);

@@ -20,6 +20,7 @@ type StartOptions = {
   configPath?: string;
   foreground?: boolean;
   skipClaudeCodeConfig?: boolean;
+  debug?: boolean;
 };
 
 type StopOptions = {
@@ -70,6 +71,7 @@ Commands:
 Options for start/run/restart:
   -c, --config <path>    Path to a claude-adapter config JSON file
       --log              Run in foreground and print logs to the current terminal
+      --debug            Print detailed request path, headers and body logs
       --no-claude-config Do not update ~/.claude/settings.json for Claude Code
 
 Options for stop:
@@ -192,6 +194,11 @@ function parseStartOptions(args: string[]): StartOptions {
 
     if (arg === '--log') {
       options.foreground = true;
+      continue;
+    }
+
+    if (arg === '--debug') {
+      options.debug = true;
       continue;
     }
 
@@ -343,6 +350,9 @@ function printLogTail(filePath: string, maxBytes = 4000) {
 async function runServer(args: string[]) {
   const options = parseStartOptions(args);
   applyConfigEnvironment(options.configPath);
+  if (options.debug) {
+    process.env.CLAUDE_ADAPTER_DEBUG = '1';
+  }
 
   const { startClaudeAdapter } = await import('./server.js');
   const { app, config } = await startClaudeAdapter();
@@ -402,6 +412,10 @@ async function start(args: string[]) {
 
   if (options.configPath) {
     childArgs.push('--config', path.resolve(options.configPath));
+  }
+
+  if (options.debug) {
+    childArgs.push('--debug');
   }
 
   if (options.skipClaudeCodeConfig) {
