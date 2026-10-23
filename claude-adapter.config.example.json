@@ -11,6 +11,14 @@
     "enabled": false,
     "conversationDir": "logs/claude-adapter"
   },
+  "remote": {
+    "enabled": false,
+    "url": "ws://127.0.0.1:9527/api/claude-automation/adapters/ws",
+    "token": "",
+    "instanceId": "local",
+    "reconnectMs": 1000,
+    "maxHistoryBytes": 5242880
+  },
   "models": {
     "claude-fable-5": "gpt-5.5",
     "claude-sonnet-5": "gpt-5.5",

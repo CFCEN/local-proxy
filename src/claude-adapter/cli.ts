@@ -42,8 +42,14 @@ type RuntimeMeta = {
   claudeCodeSettingsFile?: string;
 };
 
+type ClaudeCodeHook = {
+  matcher?: string;
+  hooks: Array<{ type: string; command: string; timeout?: number; onFailure?: string }>;
+};
+
 type ClaudeCodeSettings = {
   env?: Record<string, string>;
+  hooks?: Record<string, ClaudeCodeHook[]>;
   [key: string]: unknown;
 };
 
@@ -265,6 +271,26 @@ function getClaudeCodeBaseUrl(config: AdapterConfig) {
   return `http://${getClaudeCodeHost(config.listen.host)}:${config.listen.port}`;
 }
 
+function automationHook(config: AdapterConfig): ClaudeCodeHook[] {
+  const forwarder = path.resolve(__dirname, 'hook-forwarder.js');
+  const url = `${getClaudeCodeBaseUrl(config)}/claude-automation/hooks`;
+  return [{ hooks: [{ type: 'command', command: `${JSON.stringify(process.execPath)} ${JSON.stringify(forwarder)} ${JSON.stringify(url)} ${JSON.stringify(config.remote.token)}`, timeout: 5 }] }];
+}
+
+function decisionHook(config: AdapterConfig, matcher?: string): ClaudeCodeHook[] {
+  const forwarder = path.resolve(__dirname, 'decision-hook-forwarder.js');
+  const url = `${getClaudeCodeBaseUrl(config)}/claude-automation/decisions`;
+  return [{
+    matcher,
+    hooks: [{
+      type: 'command',
+      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(forwarder)} ${JSON.stringify(url)} ${JSON.stringify(config.remote.token)}`,
+      timeout: 300,
+      onFailure: 'block',
+    }],
+  }];
+}
+
 function readClaudeCodeSettings(filePath: string): ClaudeCodeSettings {
   if (!fs.existsSync(filePath)) return {};
   const raw = fs.readFileSync(filePath, 'utf8').trim();
@@ -287,9 +313,29 @@ function writeClaudeCodeSettings(config: AdapterConfig) {
     env.ANTHROPIC_AUTH_TOKEN = config.upstream.apiKey;
   }
 
+  const hooks = { ...(settings.hooks ?? {}) };
+  if (config.remote.enabled) {
+    for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']) {
+      const existing = hooks[event] ?? [];
+      hooks[event] = [
+        ...existing.filter((group) => !group.hooks.some((hook) => hook.command.includes('hook-forwarder.js'))),
+        ...automationHook(config),
+      ];
+    }
+    hooks.PermissionRequest = [
+      ...(hooks.PermissionRequest ?? []).filter((group) => !group.hooks.some((hook) => hook.command.includes('decision-hook-forwarder.js'))),
+      ...decisionHook(config),
+    ];
+    hooks.PreToolUse = [
+      ...(hooks.PreToolUse ?? []).filter((group) => !group.hooks.some((hook) => hook.command.includes('decision-hook-forwarder.js'))),
+      ...decisionHook(config, 'ExitPlanMode'),
+    ];
+  }
+
   const nextSettings: ClaudeCodeSettings = {
     ...settings,
     env,
+    hooks,
   };
 
   fs.writeFileSync(settingsFile, `${JSON.stringify(nextSettings, null, 2)}\n`);

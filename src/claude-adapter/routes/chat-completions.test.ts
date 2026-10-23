@@ -52,6 +52,14 @@ function createConfig(baseUrl: string, apiKey = ''): AdapterConfig {
       enabled: false,
       conversationDir: 'logs/claude-adapter',
     },
+    remote: {
+      enabled: false,
+      url: 'ws://127.0.0.1:9527/api/claude-automation/adapters/ws',
+      token: '',
+      instanceId: 'test',
+      reconnectMs: 1_000,
+      maxHistoryBytes: 5 * 1024 * 1024,
+    },
     models: {
       alias: 'mapped-model',
     },
