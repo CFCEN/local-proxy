@@ -2,6 +2,7 @@ dist/
 node_modules/
 .history/
 logs/
+debug.log
 local-proxy.config.json
 claude-adapter.config.json
 .idea/

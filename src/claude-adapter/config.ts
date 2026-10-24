@@ -26,6 +26,21 @@ const ConfigSchema = z.object({
     enabled: z.boolean().default(false),
     conversationDir: z.string().default('logs/claude-adapter'),
   }).default({ enabled: false, conversationDir: 'logs/claude-adapter' }),
+  remote: z.object({
+    enabled: z.boolean().default(false),
+    url: z.string().url().refine((url) => url.startsWith('ws://') || url.startsWith('wss://'), 'remote.url must use ws:// or wss://').default('ws://127.0.0.1:9527/api/claude-automation/adapters/ws'),
+    token: z.string().default(''),
+    instanceId: z.string().min(1).default('local'),
+    reconnectMs: z.number().int().min(500).max(60_000).default(1_000),
+    maxHistoryBytes: z.number().int().positive().max(50 * 1024 * 1024).default(5 * 1024 * 1024),
+  }).default({
+    enabled: false,
+    url: 'ws://127.0.0.1:9527/api/claude-automation/adapters/ws',
+    token: '',
+    instanceId: 'local',
+    reconnectMs: 1_000,
+    maxHistoryBytes: 5 * 1024 * 1024,
+  }),
   models: z.record(z.string()).default({}),
 });
 
@@ -54,6 +69,23 @@ export function loadConfig(): AdapterConfig {
 
   if (process.env.CLAUDE_ADAPTER_UPSTREAM_API_KEY) {
     parsed.upstream.apiKey = process.env.CLAUDE_ADAPTER_UPSTREAM_API_KEY;
+  }
+
+  if (process.env.CLAUDE_ADAPTER_REMOTE_URL) {
+    parsed.remote.url = process.env.CLAUDE_ADAPTER_REMOTE_URL;
+    parsed.remote.enabled = true;
+  }
+
+  if (process.env.CLAUDE_ADAPTER_REMOTE_TOKEN) {
+    parsed.remote.token = process.env.CLAUDE_ADAPTER_REMOTE_TOKEN;
+  }
+
+  if (process.env.CLAUDE_ADAPTER_INSTANCE_ID) {
+    parsed.remote.instanceId = process.env.CLAUDE_ADAPTER_INSTANCE_ID;
+  }
+
+  if (parsed.remote.enabled && !parsed.remote.token) {
+    throw new Error('remote.token is required when remote control is enabled');
   }
 
   return parsed;

@@ -1,6 +1,6 @@
 {
   "name": "@winnerhang/claude-adapter",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Anthropic Claude Messages API 到 OpenAI Chat Completions API 兼容接口的本地适配代理",
   "main": "dist/claude-adapter/server.js",
   "bin": {
@@ -21,10 +21,11 @@
     "adapter:start:src": "tsx src/claude-adapter/cli.ts run",
     "adapter:dev": "tsx watch src/claude-adapter/cli.ts run",
     "adapter:build": "tsc -p tsconfig.claude-adapter.json && chmod +x dist/claude-adapter/cli.js && node scripts/write-claude-adapter-build-mode.mjs",
-    "adapter:test": "npm run adapter:build && node --test dist/claude-adapter/**/*.test.js",
+    "adapter:test": "npm run adapter:build && node --test dist/claude-adapter",
     "prepublishOnly": "npm run adapter:test"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.4.0",
     "pino": "^9.7.0",
     "socks": "^2.8.3",

@@ -202,6 +202,33 @@ CLAUDE_ADAPTER_UPSTREAM_API_KEY=your-api-key \
 npm run adapter:start
 ```
 
+可选的 Claude Automation 管理连接默认关闭。启用后，适配器会作为单一 WebSocket 客户端连接管理后端：
+
+```json
+{
+  "remote": {
+    "enabled": true,
+    "url": "ws://127.0.0.1:9527/api/claude-automation/adapters/ws",
+    "token": "replace-with-a-dedicated-token",
+    "instanceId": "my-mac",
+    "reconnectMs": 1000,
+    "maxHistoryBytes": 5242880
+  }
+}
+```
+
+也可以用 `CLAUDE_ADAPTER_REMOTE_URL`、`CLAUDE_ADAPTER_REMOTE_TOKEN` 和 `CLAUDE_ADAPTER_INSTANCE_ID` 覆盖。远程 token 必须独立设置，不能复用上游 API key。启用远程控制时 token 不能为空。
+
+管理端支持以下白名单命令：
+
+- `status.get`：读取 Adapter 运行状态。
+- `sessions.list`：列出 Claude Code 会话并按 transcript 中记录的 cwd 归属项目。
+- `sessions.read`：只读获取会话历史，单次读取受 `maxHistoryBytes` 限制。
+- `session.message`：在会话原 cwd 中执行 `claude --print --resume <sessionId> <content>`，恢复已完成会话。
+- `action.respond`：处理网页端对权限请求或退出计划模式请求的批准、拒绝或继续决定。
+
+`session.message` 不会向已有终端注入键盘输入，也不会修改 JSONL transcript。同一个仍在运行或已由 Adapter 恢复中的 session 会返回 `busy`；进程使用参数数组且 `shell: false` 启动，输出限制为 1 MiB，最长运行 30 分钟。可通过 `CLAUDE_CODE_EXECUTABLE` 指定 Claude CLI 路径。
+
 ### 配置示例
 
 ```json
@@ -436,7 +463,37 @@ claude-adapter start --config ./claude-adapter.config.json --no-claude-config
 CLAUDE_ADAPTER_CONFIGURE_CLAUDE_CODE=0 claude-adapter start --config ./claude-adapter.config.json
 ```
 
+启用 Claude Automation 后，启动命令还会合并写入这些 Hooks：
+
+- `SessionStart`、`UserPromptSubmit`、`Stop`、`SessionEnd`：非阻塞地同步会话运行状态。
+- `PermissionRequest`：等待管理页面批准或拒绝权限请求。
+- `PreToolUse`（仅匹配 `ExitPlanMode`）：等待管理页面批准或拒绝退出计划模式。
+
+审批 Hook 最长等待 5 分钟，并配置为失败阻断。Adapter 与管理后端断线、超时、输入无效或 Adapter 退出时默认不放行。已有的其他 Hook 分组会保留。
+
 修改后的 Claude Code 配置通常需要新开的 Claude Code 会话才会生效。
+
+### Claude Automation 管理端
+
+完整链路如下：
+
+```text
+Claude Code hooks / transcripts
+  → claude-adapter outbound WebSocket
+  → local-manager Go backend + SQLite
+  → React Claude Automation 页面
+```
+
+管理页面支持：
+
+- 会话按项目分组，以及 Sessions / Tasks 视图。
+- 会话状态实时更新、完成或等待选择时的常驻通知。
+- 点击列表卡片或通知中的“详情”打开居中会话弹窗。
+- Markdown 对话预览与完整 Source 数据切换。
+- 从弹窗恢复已完成会话并发送新消息。
+- 在弹窗中批准/拒绝工具权限和计划。
+
+三端必须使用同一枚专用 Automation Token：Adapter `remote.token`、Go 后端 `AUTOMATION_TOKEN`、前端 `VITE_AUTOMATION_TOKEN`。不要使用上游 API key 作为 Automation Token。
 
 ### 对话日志
 

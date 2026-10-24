@@ -1,5 +1,6 @@
 import { request } from 'undici';
 import type { AdapterConfig } from '../config.js';
+import { writeDebugLog } from '../utils/debug-log.js';
 import { buildUpstreamHeaders } from '../utils/headers.js';
 
 export type OpenAIChatCompletionsBody = Record<string, unknown> & {
@@ -18,6 +19,11 @@ export async function callChatCompletions(
   apiKey?: string,
 ): Promise<UpstreamResult> {
   const url = new URL('/v1/chat/completions', config.upstream.baseUrl);
+  writeDebugLog('upstream_request', {
+    url: url.toString(),
+    model: body.model,
+    stream: false,
+  });
   const response = await request(url, {
     method: 'POST',
     headers: buildUpstreamHeaders(apiKey || config.upstream.apiKey),
@@ -25,6 +31,11 @@ export async function callChatCompletions(
   });
 
   const text = await response.body.text();
+  writeDebugLog('upstream_response', {
+    url: url.toString(),
+    statusCode: response.statusCode,
+    body: text.slice(0, 2000),
+  });
   const parsed = text ? safeJsonParse(text) : {};
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -40,11 +51,22 @@ export async function callChatCompletionsStream(
   apiKey?: string,
 ) {
   const url = new URL('/v1/chat/completions', config.upstream.baseUrl);
-  return request(url, {
+  writeDebugLog('upstream_request', {
+    url: url.toString(),
+    model: body.model,
+    stream: true,
+  });
+  const response = await request(url, {
     method: 'POST',
     headers: buildUpstreamHeaders(apiKey || config.upstream.apiKey),
     body: JSON.stringify(body),
   });
+  writeDebugLog('upstream_response', {
+    url: url.toString(),
+    statusCode: response.statusCode,
+    stream: true,
+  });
+  return response;
 }
 
 function safeJsonParse(text: string): unknown {
