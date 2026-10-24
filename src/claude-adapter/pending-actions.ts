@@ -22,7 +22,7 @@ type Waiter = PendingAction & {
 export class PendingActions {
   private readonly waiters = new Map<string, Waiter>();
 
-  create(input: Record<string, unknown>, onPending: (action: PendingAction) => void): Promise<ActionDecision> {
+  create(input: Record<string, unknown>, onPending: (action: PendingAction) => void, onTerminal?: (action: PendingAction, status: 'expired' | 'failed') => void): Promise<ActionDecision> {
     const sessionId = typeof input.session_id === 'string' ? input.session_id : '';
     const toolName = typeof input.tool_name === 'string' ? input.tool_name : undefined;
     if (!sessionId || !toolName) throw new Error('invalid decision hook input');
@@ -41,6 +41,7 @@ export class PendingActions {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters.delete(actionId);
+        onTerminal?.(action, 'expired');
         reject(new Error('decision timeout'));
       }, 5 * 60_000);
       timer.unref();
@@ -58,9 +59,10 @@ export class PendingActions {
     return true;
   }
 
-  close() {
+  close(onTerminal?: (action: PendingAction, status: 'expired' | 'failed') => void) {
     for (const waiter of this.waiters.values()) {
       clearTimeout(waiter.timer);
+      onTerminal?.(waiter, 'failed');
       waiter.reject(new Error('adapter disconnected'));
     }
     this.waiters.clear();

@@ -12,10 +12,12 @@ async function main() {
   if (!input.trim()) return;
 
   try {
+    const payload = JSON.parse(input) as Record<string, unknown>;
+    payload.cli_pid = process.ppid;
     await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: input,
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(2_000),
     });
   } catch {

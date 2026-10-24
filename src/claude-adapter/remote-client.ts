@@ -3,8 +3,9 @@ import { WebSocket } from 'undici';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AdapterConfig } from './config.js';
 import { handleRemoteCommand } from './remote-commands.js';
-import { listClaudeSessions } from './claude-sessions.js';
+import { listClaudeSessions, readClaudeSessionIncrement } from './claude-sessions.js';
 import { PendingActions, type PendingAction } from './pending-actions.js';
+import type { ChannelRegistry } from './channel-registry.js';
 
 const MAX_MESSAGE_BYTES = 1024 * 1024;
 
@@ -22,31 +23,73 @@ export interface RemoteClient {
 export function createRemoteClient(
   config: AdapterConfig['remote'],
   logger: FastifyBaseLogger,
+  channelRegistry?: ChannelRegistry,
 ): RemoteClient {
   let socket: WebSocket | undefined;
   let reconnectTimer: NodeJS.Timeout | undefined;
   let heartbeatTimer: NodeJS.Timeout | undefined;
+  let transcriptTimer: NodeJS.Timeout | undefined;
   let stopped = false;
+  let transcriptCursors = new Map<string, number>();
   let reconnectAttempt = 0;
   const pendingActions = new PendingActions();
 
   function send(message: unknown) {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+    if (socket?.readyState !== WebSocket.OPEN) {
+      logger.warn({ type: (message as { type?: unknown })?.type }, 'remote message dropped: socket is not open');
+      return false;
+    }
+    socket.send(JSON.stringify(message));
+    return true;
   }
 
   function clearTimers() {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (transcriptTimer) clearInterval(transcriptTimer);
     reconnectTimer = undefined;
     heartbeatTimer = undefined;
+    transcriptTimer = undefined;
+    transcriptCursors = new Map();
   }
 
   async function sendSnapshot() {
     try {
-      send({ version: 1, type: 'snapshot', sessions: await listClaudeSessions() });
+      const sessions = await listClaudeSessions();
+      transcriptCursors = new Map(sessions.map((session) => [session.sessionId, session.sizeBytes]));
+      send({ version: 1, type: 'snapshot', sessions });
     } catch (error) {
       logger.warn({ error }, 'failed to send session snapshot');
     }
+  }
+
+  async function pollTranscripts() {
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    try {
+      const sessions = await listClaudeSessions();
+      let eventCount = 0;
+      for (const session of sessions) {
+        const cursor = transcriptCursors.get(session.sessionId) ?? 0;
+        if (session.sizeBytes === cursor) continue;
+        const increment = await readClaudeSessionIncrement(session.sessionId, cursor);
+        transcriptCursors.set(session.sessionId, increment.nextCursor);
+        logger.info({ sessionId: session.sessionId, cursor, nextCursor: increment.nextCursor, records: increment.records.length }, 'transcript increment detected');
+        for (let index = 0; index < increment.records.length; index += 1) {
+          const record = increment.records[index];
+          const item = record as Record<string, unknown>;
+          const offset = increment.cursors[index] ?? increment.nextCursor;
+          const eventId = typeof item.uuid === 'string' ? item.uuid : `${session.sessionId}:${offset}`;
+          if (send({ version: 1, type: 'event', sessionId: session.sessionId, projectId: session.projectPath, eventId, eventType: item.type, payload: record, cursor: offset })) eventCount += 1;
+        }
+      }
+      if (eventCount > 0) logger.info({ events: eventCount }, 'transcript events sent');
+    } catch (error) {
+      logger.warn({ error }, 'failed to poll Claude transcripts');
+    }
+  }
+
+  function sendActionTerminal(action: PendingAction, status: 'expired' | 'failed') {
+    send({ version: 1, type: 'action.resolved', actionId: action.actionId, requestId: action.requestId, sessionId: action.sessionId, status });
   }
 
   async function sendSessionStatus(
@@ -87,7 +130,7 @@ export function createRemoteClient(
         input: action.input,
         plan: action.plan,
       });
-    });
+    }, sendActionTerminal);
   }
 
   function scheduleReconnect() {
@@ -116,7 +159,10 @@ export function createRemoteClient(
         pid: process.pid,
         capabilities: ['status.get', 'sessions.list', 'sessions.read', 'session.message', 'action.respond'],
       });
-      void sendSnapshot();
+      void sendSnapshot().then(() => {
+        transcriptTimer = setInterval(() => void pollTranscripts(), 2_000);
+        transcriptTimer.unref();
+      });
       heartbeatTimer = setInterval(() => send({ version: 1, type: 'ping', at: new Date().toISOString() }), 20_000);
       heartbeatTimer.unref();
     });
@@ -140,7 +186,7 @@ export function createRemoteClient(
         return;
       }
       if (record.type === 'command') {
-        send(await handleRemoteCommand(record.payload, config.maxHistoryBytes, pendingActions));
+        send(await handleRemoteCommand(record.payload, config.maxHistoryBytes, pendingActions, channelRegistry));
       }
     });
 
@@ -152,7 +198,7 @@ export function createRemoteClient(
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = undefined;
       socket = undefined;
-      pendingActions.close();
+      pendingActions.close(sendActionTerminal);
       if (!stopped) {
         logger.warn({ code: event.code, reason: event.reason }, 'remote control disconnected');
         scheduleReconnect();
@@ -165,7 +211,7 @@ export function createRemoteClient(
     clearTimers();
     socket?.close(1000, 'adapter shutting down');
     socket = undefined;
-    pendingActions.close();
+    pendingActions.close(sendActionTerminal);
   }
 
   return { connect, close, sendSessionStatus, waitForDecision };

@@ -21,6 +21,13 @@ export interface ClaudeSessionSummary {
 export interface ClaudeSessionHistory extends ClaudeSessionSummary {
   records: unknown[];
   truncated: boolean;
+  nextCursor: number;
+}
+
+export interface ClaudeTranscriptIncrement {
+  records: unknown[];
+  cursors: number[];
+  nextCursor: number;
 }
 
 function projectsRoot() {
@@ -196,36 +203,70 @@ export async function listClaudeSessions(): Promise<ClaudeSessionSummary[]> {
   return sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function readClaudeSession(sessionId: string, maxBytes: number): Promise<ClaudeSessionHistory> {
+async function readTranscriptFromCursor(
+  transcriptPath: string,
+  cursor: number,
+  filterMainChain: boolean,
+  maxBytes?: number,
+): Promise<ClaudeTranscriptIncrement> {
+  const stat = await fs.promises.stat(transcriptPath);
+  const start = stat.size < cursor ? 0 : Math.max(0, cursor);
+  const content = await fs.promises.readFile(transcriptPath);
+  const completeEnd = content.length === 0 ? 0 : content.lastIndexOf(0x0a) + 1;
+  const requestedEnd = maxBytes ? Math.min(completeEnd, start + maxBytes) : completeEnd;
+  const end = requestedEnd < completeEnd
+    ? content.indexOf(0x0a, requestedEnd) + 1
+    : completeEnd;
+  const records: unknown[] = [];
+  const cursors: number[] = [];
+  let offset = start;
+  for (const line of content.subarray(start, end).toString('utf8').split('\n')) {
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1;
+    const end = offset + lineBytes;
+    offset = end;
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+      const message = record.message as Record<string, unknown> | undefined;
+      if (filterMainChain && (record.isSidechain === true ||
+        !((record.type === 'user' && message?.role === 'user') ||
+          (record.type === 'assistant' && message?.role === 'assistant')))) continue;
+      records.push(record);
+      cursors.push(end);
+    } catch {
+      // Ignore malformed records.
+    }
+  }
+  let nextCursor = Math.min(stat.size, Math.max(start, end));
+  if (stat.size === 0) nextCursor = 0;
+  return { records, cursors, nextCursor };
+}
+
+export async function readClaudeSessionIncrement(
+  sessionId: string,
+  cursor: number,
+): Promise<ClaudeTranscriptIncrement> {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error('invalid session id');
+  const session = (await listClaudeSessions()).find((item) => item.sessionId === sessionId);
+  if (!session) throw new Error('session not found');
+  return readTranscriptFromCursor(session.transcriptPath, Math.max(0, cursor), true);
+}
+
+export async function readClaudeSession(sessionId: string, maxBytes: number, afterCursor?: number): Promise<ClaudeSessionHistory> {
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error('invalid session id');
   const session = (await listClaudeSessions()).find((item) => item.sessionId === sessionId);
   if (!session) throw new Error('session not found');
 
-  const input = fs.createReadStream(session.transcriptPath, {
-    encoding: 'utf8',
-    start: Math.max(0, session.sizeBytes - maxBytes),
-  });
-  const lines = readline.createInterface({ input, crlfDelay: Infinity });
-  const records: unknown[] = [];
-  let first = true;
-  try {
-    for await (const line of lines) {
-      if (first && session.sizeBytes > maxBytes) {
-        first = false;
-        continue;
-      }
-      first = false;
-      if (!line.trim()) continue;
-      try {
-        records.push(JSON.parse(line));
-      } catch {
-        // Ignore a partially-written final record.
-      }
-    }
-  } finally {
-    lines.close();
-    input.destroy();
+  if (afterCursor !== undefined) {
+    const increment = await readTranscriptFromCursor(session.transcriptPath, afterCursor, false);
+    return { ...session, records: increment.records, nextCursor: increment.nextCursor, truncated: false };
   }
 
-  return { ...session, records, truncated: session.sizeBytes > maxBytes };
+  const increment = await readTranscriptFromCursor(session.transcriptPath, 0, true, maxBytes);
+  return {
+    ...session,
+    records: increment.records,
+    truncated: session.sizeBytes > maxBytes,
+    nextCursor: increment.nextCursor,
+  };
 }

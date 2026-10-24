@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { listClaudeSessions, readClaudeSession } from './claude-sessions.js';
 import { resumeClaudeSession } from './session-runner.js';
 import type { PendingActions } from './pending-actions.js';
+import type { ChannelRegistry } from './channel-registry.js';
 
 const CommandSchema = z.discriminatedUnion('type', [
   z.object({ requestId: z.string().min(1), type: z.literal('status.get') }),
@@ -9,7 +10,11 @@ const CommandSchema = z.discriminatedUnion('type', [
   z.object({
     requestId: z.string().min(1),
     type: z.literal('sessions.read'),
-    payload: z.object({ sessionId: z.string().min(1) }),
+    payload: z.object({
+      sessionId: z.string().min(1),
+      afterCursor: z.number().int().nonnegative().optional(),
+      maxBytes: z.number().int().positive().max(50 * 1024 * 1024).optional(),
+    }),
   }),
   z.object({
     requestId: z.string().min(1),
@@ -42,6 +47,7 @@ export async function handleRemoteCommand(
   message: unknown,
   maxHistoryBytes: number,
   pendingActions?: PendingActions,
+  channelRegistry?: ChannelRegistry,
 ): Promise<RemoteCommandResult> {
   const parsed = CommandSchema.safeParse(message);
   if (!parsed.success) {
@@ -76,18 +82,35 @@ export async function handleRemoteCommand(
           type: 'command.result',
           requestId: parsed.data.requestId,
           ok: true,
-          result: await readClaudeSession(parsed.data.payload.sessionId, maxHistoryBytes),
+          result: await readClaudeSession(
+            parsed.data.payload.sessionId,
+            parsed.data.payload.maxBytes ?? maxHistoryBytes,
+            parsed.data.payload.afterCursor,
+          ),
         };
-      case 'session.message':
+      case 'session.message': {
+        const delivered = await channelRegistry?.send(
+          parsed.data.payload.sessionId,
+          parsed.data.payload.content,
+        );
+        if (delivered) {
+          return {
+            type: 'command.result',
+            requestId: parsed.data.requestId,
+            ok: true,
+            result: { delivered: true, mode: 'channel' },
+          };
+        }
         return {
           type: 'command.result',
           requestId: parsed.data.requestId,
           ok: true,
-          result: await resumeClaudeSession(
-            parsed.data.payload.sessionId,
-            parsed.data.payload.content,
-          ),
+          result: {
+            ...(await resumeClaudeSession(parsed.data.payload.sessionId, parsed.data.payload.content)),
+            mode: 'resume',
+          },
         };
+      }
       case 'action.respond': {
         const resolved = pendingActions?.respond(
           parsed.data.payload.sessionId,

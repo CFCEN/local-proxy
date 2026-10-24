@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listClaudeSessions, readClaudeSession } from './claude-sessions.js';
+import { listClaudeSessions, readClaudeSession, readClaudeSessionIncrement } from './claude-sessions.js';
 
 test('lists and reads Claude transcripts by recorded cwd', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-sessions-'));
@@ -29,8 +29,29 @@ test('lists and reads Claude transcripts by recorded cwd', async () => {
     assert.equal(sessions[0]?.status, 'running');
 
     const history = await readClaudeSession('session-1', 1024 * 1024);
-    assert.equal(history.records.length, 3);
+    assert.equal(history.records.length, 2);
+    assert.deepEqual(history.records.map((record) => (record as { type: string }).type), ['user', 'assistant']);
     assert.equal(history.truncated, false);
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resets a stale cursor after transcript size rollback', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-sessions-'));
+  const previous = process.env.CLAUDE_CONFIG_DIR;
+  const projectDir = path.join(root, 'projects', '-tmp-example');
+  fs.mkdirSync(projectDir, { recursive: true });
+  const transcript = path.join(projectDir, 'session-reset.jsonl');
+  fs.writeFileSync(transcript, `${JSON.stringify({ type: 'user', sessionId: 'session-reset', cwd: '/tmp/example', message: { role: 'user', content: 'rewritten' } })}\n`);
+  process.env.CLAUDE_CONFIG_DIR = root;
+
+  try {
+    const increment = await readClaudeSessionIncrement('session-reset', 99999);
+    assert.equal(increment.records.length, 1);
+    assert.equal(increment.nextCursor, fs.statSync(transcript).size);
   } finally {
     if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = previous;

@@ -7,6 +7,7 @@ import { createConversationLogger, createDisabledConversationLogger } from './ut
 import { debugLogPath, writeDebugLog } from './utils/debug-log.js';
 import { createRemoteClient } from './remote-client.js';
 import { decisionHookOutput } from './pending-actions.js';
+import { createChannelRegistry } from './channel-registry.js';
 
 export async function createClaudeAdapterServer(config: AdapterConfig) {
   const app = Fastify({
@@ -83,8 +84,22 @@ function redactSensitiveHeaders(headers: Record<string, unknown>) {
 export async function startClaudeAdapter() {
   const config = loadConfig();
   const app = await createClaudeAdapterServer(config);
-  const remoteClient = config.remote.enabled ? createRemoteClient(config.remote, app.log) : undefined;
+  const channelRegistry = createChannelRegistry(app.log);
+  const remoteClient = config.remote.enabled ? createRemoteClient(config.remote, app.log, channelRegistry) : undefined;
   if (remoteClient) {
+    app.post('/claude-automation/channel/register', async (request, reply) => {
+      if (!config.remote.token || request.headers.authorization !== `Bearer ${config.remote.token}`) {
+        return reply.code(401).send({ error: 'unauthorized' });
+      }
+      const body = request.body as { cliPid?: unknown; port?: unknown } | undefined;
+      if (typeof body?.cliPid !== 'number' || typeof body.port !== 'number') {
+        return reply.code(400).send({ error: 'invalid channel registration' });
+      }
+      if (!channelRegistry.register(body.cliPid, body.port)) {
+        return reply.code(409).send({ error: 'session is not registered' });
+      }
+      return { ok: true };
+    });
     app.post('/claude-automation/hooks', async (request, reply) => {
       if (!config.remote.token || request.headers.authorization !== `Bearer ${config.remote.token}`) {
         return reply.code(401).send({ error: 'unauthorized' });
@@ -92,6 +107,9 @@ export async function startClaudeAdapter() {
       const body = request.body as Record<string, unknown> | undefined;
       const event = typeof body?.hook_event_name === 'string' ? body.hook_event_name : '';
       const sessionId = typeof body?.session_id === 'string' ? body.session_id : '';
+      const cliPid = typeof body?.cli_pid === 'number' ? body.cli_pid : undefined;
+      if (cliPid) channelRegistry.bindSession(sessionId, cliPid);
+      if (event === 'SessionEnd' && cliPid) channelRegistry.unbindSession(sessionId, cliPid);
       const status = event === 'Stop' || event === 'SessionEnd' ? 'completed'
         : event === 'SessionStart' || event === 'UserPromptSubmit' ? 'running'
           : undefined;

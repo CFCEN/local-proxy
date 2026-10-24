@@ -50,6 +50,7 @@ type ClaudeCodeHook = {
 type ClaudeCodeSettings = {
   env?: Record<string, string>;
   hooks?: Record<string, ClaudeCodeHook[]>;
+  mcpServers?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
@@ -271,6 +272,18 @@ function getClaudeCodeBaseUrl(config: AdapterConfig) {
   return `http://${getClaudeCodeHost(config.listen.host)}:${config.listen.port}`;
 }
 
+function channelServer(config: AdapterConfig) {
+  const entry = path.resolve(__dirname, 'channel-server.js');
+  return {
+    command: process.execPath,
+    args: [entry],
+    env: {
+      CLAUDE_ADAPTER_CHANNEL_REGISTER_URL: `${getClaudeCodeBaseUrl(config)}/claude-automation/channel/register`,
+      CLAUDE_ADAPTER_CHANNEL_TOKEN: config.remote.token,
+    },
+  };
+}
+
 function automationHook(config: AdapterConfig): ClaudeCodeHook[] {
   const forwarder = path.resolve(__dirname, 'hook-forwarder.js');
   const url = `${getClaudeCodeBaseUrl(config)}/claude-automation/hooks`;
@@ -314,7 +327,9 @@ function writeClaudeCodeSettings(config: AdapterConfig) {
   }
 
   const hooks = { ...(settings.hooks ?? {}) };
+  const mcpServers = { ...(settings.mcpServers ?? {}) };
   if (config.remote.enabled) {
+    mcpServers['claude-web-control'] = channelServer(config);
     for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']) {
       const existing = hooks[event] ?? [];
       hooks[event] = [
@@ -336,6 +351,7 @@ function writeClaudeCodeSettings(config: AdapterConfig) {
     ...settings,
     env,
     hooks,
+    mcpServers,
   };
 
   fs.writeFileSync(settingsFile, `${JSON.stringify(nextSettings, null, 2)}\n`);
